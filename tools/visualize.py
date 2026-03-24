@@ -144,13 +144,25 @@ def main(config: DictConfig):
         with open(file, 'rb') as f:
             outputs = pickle.load(f)
 
-        cam_pose = outputs.get('cam_pose', outputs['T_velo_2_cam'])
+        # cam_pose = outputs.get('cam_pose', outputs['T_velo_2_cam'])
+        # (3/24/26): flexible handling of cam_pose key names
+        if 'cam_pose' in outputs:
+            cam_pose = outputs['cam_pose']
+        else:
+            cam_pose = outputs['T_velo_2_cam']
+
         fov_mask, target = outputs['fov_mask_1'], outputs['target']
         vox_origin = np.array([0, -25.6, -2])
 
         # Handle prediction field names
         try:
-            pred = outputs.get('pred', outputs['y_pred'])
+            # pred = outputs.get('pred', outputs['y_pred'])
+            # (3/24/26): flexible handling pred
+            if 'pred' in outputs:
+                pred = outputs['pred']
+            else:
+                pred = outputs['y_pred']
+
             if pred.shape != (256, 256, 32):
                 pred = pred.reshape(256, 256, 32)
         except:
