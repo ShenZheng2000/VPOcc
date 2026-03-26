@@ -112,6 +112,22 @@ class VPOccDecoder(nn.Module):
     
         return points.unsqueeze(0).long(), fov_mask.unsqueeze(0)
     
+
+    def _build_scene_embed(self, proposal_layer, bs, feats, projected_pix, vol_pts, scene_pos, vanishing_point=None):
+        ref_pix = (torch.flip(projected_pix, dims=[-1]) + 0.5) / torch.tensor(
+            self.image_shape).to(projected_pix)
+        ref_pix = torch.flip(ref_pix, dims=[-1])
+
+        scene_embed = self.scene_embed.weight.repeat(bs, 1, 1)
+
+        if vanishing_point is None:
+            scene_embed = proposal_layer(scene_embed, feats, scene_pos, vol_pts, ref_pix)
+        else:
+            scene_embed = proposal_layer(vanishing_point, scene_embed, feats, scene_pos, vol_pts, ref_pix)
+
+        return scene_embed
+
+
     @autocast(dtype=torch.float32)
     def forward(self, vanishing_point, feats_dict, depth, K, E, voxel_origin, projected_pix,
                 fov_mask, warp_dict):
@@ -119,7 +135,8 @@ class VPOccDecoder(nn.Module):
         feats = feats_dict['origin_feats']
         warped_feats = feats_dict['warped_feats']
                 
-        bs = feats[0].shape[0]
+        # bs = feats[0].shape[0]
+        bs = (feats if feats is not None else warped_feats)[0].shape[0]
 
         if self.downsample_z != 1:
             projected_pix = interpolate_flatten(
@@ -127,7 +144,9 @@ class VPOccDecoder(nn.Module):
             fov_mask = interpolate_flatten(
                 fov_mask, self.ori_scene_shape, self.scene_shape, mode='trilinear')
             
-            warped_projected_pix, warped_fov_mask = self.apply_homography(projected_pix.clone().float(), warp_dict, fov_mask.clone())
+            # (3/25/26): skip homography if no warped branch (warp_dict=None)
+            if warp_dict is not None:
+                warped_projected_pix, warped_fov_mask = self.apply_homography(projected_pix.clone().float(), warp_dict, fov_mask.clone())
 
         vol_pts = pix2vox(
             self.image_grid,
@@ -138,23 +157,41 @@ class VPOccDecoder(nn.Module):
             self.voxel_size,
             downsample_z=self.downsample_z).long()
 
-        ref_pix = (torch.flip(projected_pix, dims=[-1]) + 0.5) / torch.tensor(
-            self.image_shape).to(projected_pix)
-        ref_pix = torch.flip(ref_pix, dims=[-1])
+        # ref_pix = (torch.flip(projected_pix, dims=[-1]) + 0.5) / torch.tensor(
+        #     self.image_shape).to(projected_pix)
+        # ref_pix = torch.flip(ref_pix, dims=[-1])
         
-        warped_ref_pix = (torch.flip(warped_projected_pix, dims=[-1]) + 0.5) / torch.tensor(
-            self.image_shape).to(warped_projected_pix)
-        warped_ref_pix = torch.flip(warped_ref_pix, dims=[-1])
+        # warped_ref_pix = (torch.flip(warped_projected_pix, dims=[-1]) + 0.5) / torch.tensor(
+        #     self.image_shape).to(warped_projected_pix)
+        # warped_ref_pix = torch.flip(warped_ref_pix, dims=[-1])
         
-        origin_scene_embed = self.scene_embed.weight.repeat(bs, 1, 1)
-        warped_scene_embed = self.scene_embed.weight.repeat(bs, 1, 1)
+        # origin_scene_embed = self.scene_embed.weight.repeat(bs, 1, 1)
+        # warped_scene_embed = self.scene_embed.weight.repeat(bs, 1, 1)
         
         scene_pos = self.scene_pos().repeat(bs, 1, 1)
         
-        origin_scene_embed = self.voxel_proposal(vanishing_point, origin_scene_embed, feats, scene_pos, vol_pts, ref_pix)
-        warped_scene_embed = self.voxel_proposal_warp(warped_scene_embed, warped_feats, scene_pos, vol_pts, warped_ref_pix)
-        
-        scene_embed = self.voxel_fusion(origin_scene_embed, warped_scene_embed)
+        # origin_scene_embed = self.voxel_proposal(vanishing_point, origin_scene_embed, feats, scene_pos, vol_pts, ref_pix)
+        # warped_scene_embed = self.voxel_proposal_warp(warped_scene_embed, warped_feats, scene_pos, vol_pts, warped_ref_pix)
+
+        # (3/25/26): build scene embed per branch only if available
+        if feats is not None:
+            origin_scene_embed = self._build_scene_embed(self.voxel_proposal, bs, feats, projected_pix, vol_pts, scene_pos, vanishing_point)
+
+        if warped_feats is not None:
+            warped_scene_embed = self._build_scene_embed(self.voxel_proposal_warp, bs, warped_feats, warped_projected_pix, vol_pts, scene_pos)
+
+
+        # scene_embed = self.voxel_fusion(origin_scene_embed, warped_scene_embed)
+        # (3/25/26): fuse if both exist, otherwise fallback to single branch
+        if (feats is not None) and (warped_feats is not None):
+            scene_embed = self.voxel_fusion(origin_scene_embed, warped_scene_embed)
+        elif feats is not None:
+            scene_embed = origin_scene_embed
+        elif warped_feats is not None:
+            scene_embed = warped_scene_embed
+        else:
+            raise ValueError("At least one of feats and warped_feats must be not None.")
+
 
         scene_embed = self.decoder(scene_embed)
         output = self.occ_head(scene_embed)
