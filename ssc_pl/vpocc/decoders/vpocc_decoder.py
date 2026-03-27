@@ -13,6 +13,7 @@ from .voxel_lifting import VoxelProposalLayerOrigin, VoxelProposalLayerWarp
 from .voxel_fusion import VolumeFusion
 from .unet3d import UNet3D
 from termcolor import cprint
+from ..warp_utils.warping_layers import invert_grid
 
 class VPOccDecoder(nn.Module):
     def __init__(self,
@@ -113,6 +114,41 @@ class VPOccDecoder(nn.Module):
         return points.unsqueeze(0).long(), fov_mask.unsqueeze(0)
     
 
+    def apply_grid_warp(self, projected_pix, warp_dict, fov_mask):
+        grid = warp_dict["grid"]
+
+        B, N, _ = projected_pix.shape
+        H, W = grid.shape[1], grid.shape[2]
+
+        inverse_grid = invert_grid(
+            grid, (B, 3, H, W), separable=True
+        )
+
+        x = projected_pix[..., 0] / (W - 1) * 2 - 1
+        y = projected_pix[..., 1] / (H - 1) * 2 - 1
+        coords = torch.stack([x, y], dim=-1).unsqueeze(2)
+
+        inv = inverse_grid.permute(0, 3, 1, 2)
+
+        warped = F.grid_sample(inv, coords, align_corners=True)
+
+        warped = warped.squeeze(-1).permute(0, 2, 1)
+
+        warped_x = (warped[..., 0] + 1) * 0.5 * (W - 1)
+        warped_y = (warped[..., 1] + 1) * 0.5 * (H - 1)
+
+        warped_projected_pix = torch.stack([warped_x, warped_y], dim=-1)
+
+        valid = (
+            (warped_x >= 0) & (warped_x < W) &
+            (warped_y >= 0) & (warped_y < H)
+        )
+
+        warped_fov_mask = fov_mask & valid
+
+        return warped_projected_pix.long(), warped_fov_mask
+
+
     def _build_scene_embed(self, proposal_layer, bs, feats, projected_pix, vol_pts, scene_pos, vanishing_point=None):
         ref_pix = (torch.flip(projected_pix, dims=[-1]) + 0.5) / torch.tensor(
             self.image_shape).to(projected_pix)
@@ -146,7 +182,17 @@ class VPOccDecoder(nn.Module):
             
             # (3/25/26): skip homography if no warped branch (warp_dict=None)
             if warp_dict is not None:
-                warped_projected_pix, warped_fov_mask = self.apply_homography(projected_pix.clone().float(), warp_dict, fov_mask.clone())
+                if "M_left" in warp_dict:
+                    warped_projected_pix, warped_fov_mask = self.apply_homography(
+                        projected_pix.clone().float(), warp_dict, fov_mask.clone()
+                    )
+                # (3/26/26): add support for grid-based warping
+                elif "grid" in warp_dict:
+                    warped_projected_pix, warped_fov_mask = self.apply_grid_warp(
+                        projected_pix.clone().float(), warp_dict, fov_mask.clone()
+                    )
+                else:
+                    raise ValueError(f"Unsupported warp_dict keys: {warp_dict.keys()}")
 
         vol_pts = pix2vox(
             self.image_grid,

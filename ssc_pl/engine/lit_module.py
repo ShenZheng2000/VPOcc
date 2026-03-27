@@ -37,6 +37,10 @@ class LitModule(L.LightningModule):
     def forward(self, x):
         return self.model(x)
 
+    # (3/26/26): allow missing keys when loading checkpoint (TPP params not in old ckpt)
+    def load_state_dict(self, state_dict, strict=False):
+        return super().load_state_dict(state_dict, strict=strict)
+
     def _step(self, batch, evaluator=None, mode=None):
         x, y = batch
             
