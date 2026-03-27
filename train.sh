@@ -25,5 +25,6 @@ run_train () {
 # run_train train_semantickitti vpocc
 # run_train train_semantickitti_skip_original vpocc_skip_original
 # run_train train_semantickitti_skip_warped vpocc_skip_warped
+# run_train train_semantickitti_skip_original_warp_gaussian vpocc_skip_original_warp_gaussian
 
-run_train train_semantickitti_skip_original_warp_gaussian vpocc_skip_original_warp_gaussian
+run_train train_semantickitti_skip_original_warp_gaussian_use_unwarp vpocc_skip_original_warp_gaussian_use_unwarp

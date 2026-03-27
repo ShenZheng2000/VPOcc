@@ -7,7 +7,7 @@ from ..losses import ce_ssc_loss, geo_scal_loss, sem_scal_loss
 from .side_warping_symphonies import SideWarping
 import os
 from torchvision.utils import save_image
-from ..warp_utils.warping_layers import CuboidGlobalKDEGrid, GaussianVPGrid
+from ..warp_utils.warping_layers import CuboidGlobalKDEGrid, GaussianVPGrid, apply_unwarp
 import torch.nn.functional as F
 
 class VPOcc(nn.Module):
@@ -28,6 +28,7 @@ class VPOcc(nn.Module):
         skip_original=False,
         skip_warped=False,
         warp_type='side',
+        use_unwarp=False,
         **kwargs,
     ):
         super().__init__()
@@ -39,10 +40,12 @@ class VPOcc(nn.Module):
         self.skip_original = skip_original
         self.skip_warped = skip_warped
         self.warp_type = warp_type
+        self.use_unwarp = use_unwarp
 
         print("[vpocc.py] self.skip_original:", self.skip_original)
         print("[vpocc.py] self.skip_warped:", self.skip_warped)
         print("[vpocc.py] self.warp_type:", self.warp_type)
+        print("[vpocc.py] self.use_unwarp:", self.use_unwarp)
 
         if self.skip_original and self.skip_warped:
             raise ValueError("Both skip_original and skip_warped cannot be True at the same time.")
@@ -114,7 +117,7 @@ class VPOcc(nn.Module):
 
         warped_pred_insts = self.encoder(warped_img)
 
-        # # ===== Begin DEBUG =====
+        # # # ===== Begin DEBUG =====
         # debug_dir = "debug"
         # os.makedirs(debug_dir, exist_ok=True)
 
@@ -123,20 +126,28 @@ class VPOcc(nn.Module):
 
         # save_image(inputs['img'], os.path.join(debug_dir, "original.png"), normalize=True)
         # save_image(warped_img, os.path.join(debug_dir, "warped.png"), normalize=True)
-        # # ===== End DEBUG =====
-
+        # # # ===== End DEBUG =====
 
         warped_feats = warped_pred_insts.pop('feats')
 
+        # (3/27/26): unwarp features, and disable coord warping 
+        if self.use_unwarp:
+            warped_feats = [apply_unwarp(warp_dict['grid'], feat) for feat in warped_feats]
+            
+            # # # ===== Begin DEBUG =====
+            # unwarped_img = apply_unwarp(warp_dict['grid'], warped_img)
+            # save_image(unwarped_img, "debug/unwarped_img.png", normalize=True)
+            # # # ===== End DEBUG =====
 
-        # # ===== Begin DEBUG =====
+            warp_dict = None
+
+        # # # ===== Begin DEBUG =====
         # print(f"[DEBUG] type(warped_feats): {type(warped_feats)}")
         # for i, feat in enumerate(warped_feats):
         #     fmap = feat[0].mean(dim=0, keepdim=True)  # [1, H, W]
         #     save_image(fmap, f"debug/feat_{i}.png", normalize=True)
-
         # exit()
-        # # ===== End DEBUG =====
+        # # # ===== End DEBUG =====
         
 
         return warped_feats, warp_dict

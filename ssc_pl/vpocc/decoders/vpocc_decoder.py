@@ -192,7 +192,11 @@ class VPOccDecoder(nn.Module):
                         projected_pix.clone().float(), warp_dict, fov_mask.clone()
                     )
                 else:
-                    raise ValueError(f"Unsupported warp_dict keys: {warp_dict.keys()}")
+                    raise ValueError("Unsupported warp_dict format. Expected keys: 'M_left' and 'M_right' for homography warping, or 'grid' for grid-based warping.")
+            else:
+                # (3/27/26): no warp if warp_dict is None
+                warped_projected_pix = projected_pix
+                warped_fov_mask = fov_mask
 
         vol_pts = pix2vox(
             self.image_grid,

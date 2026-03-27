@@ -26,6 +26,7 @@ run_eval () {
 # run_eval eval_semantickitti vpocc
 # run_eval eval_semantickitti_skip_original vpocc_skip_original
 # run_eval eval_semantickitti_skip_warped vpocc_skip_warped
-
 # run_eval eval_semantickitti_skip_original_warp_tpp vpocc_skip_original_warp_tpp
-run_eval eval_semantickitti_skip_original_warp_gaussian vpocc_skip_original_warp_gaussian
+# run_eval eval_semantickitti_skip_original_warp_gaussian vpocc_skip_original_warp_gaussian
+
+run_eval eval_semantickitti_skip_original_warp_gaussian_use_unwarp vpocc_skip_original_warp_gaussian_use_unwarp

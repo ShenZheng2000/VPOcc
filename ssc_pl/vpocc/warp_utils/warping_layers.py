@@ -579,8 +579,17 @@ def unwarp_bboxes(bboxes, grid, output_shape):
 
     return bboxes    
 
-def unwarp_masks(masks, grid, output_shape):
-    pass
+# NOTE: hardcode t his function for now
+def apply_unwarp(warp_grid, warped_feat, separable=True):
+    B, C, H, W = warped_feat.shape
+
+    grid = warp_grid.permute(0, 3, 1, 2)                  # [B, 2, H0, W0]
+    grid = F.interpolate(grid, size=(H, W), mode='bilinear', align_corners=True)
+    grid = grid.permute(0, 2, 3, 1)                       # [B, H, W, 2]
+
+    inv_grid = invert_grid(grid, (B, C, H, W), separable=separable)
+    return F.grid_sample(warped_feat, inv_grid, align_corners=True)
+
 
 import PIL
 from PIL import Image
